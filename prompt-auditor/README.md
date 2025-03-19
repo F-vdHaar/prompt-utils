@@ -9,57 +9,9 @@ A single-file CLI tool to audit prompt templates for token cost, variable usage,
 - Estimates token usage with `tiktoken`
 - Detects missing or unused template variables (e.g. {username})
 - Flags forbidden phrases or risky prompt patterns (e.g. 'rewrite everything')
-- Allows custom forbidden/risky patterns via --forbidden or --forbidden-file
 - Compares provided variables to those in the prompt and reports missing/unused ones
 - Outputs a summary report (human-readable or JSON)
 - Returns an audit score via exit code for CI/batch use
-
-## Installation
-
-From the `prompt-auditor/` directory, install locally with:
-
-```bash
-pip install .
-```
-
-This will make the `prompt-auditor` CLI available in your environment.
-
-## Usage
-
-Basic audit:
-
-```bash
-prompt-auditor --check "Generate a list for {username}"
-```
-
-With provided variables:
-
-```bash
-prompt-auditor --check "Generate a list for {username}" --vars username=alice
-```
-
-Output as JSON (for CI):
-
-```bash
-prompt-auditor --check "Generate a list for {username}" --vars username=alice --json
-```
-
-With custom forbidden patterns:
-
-```bash
-prompt-auditor --check "This is a test. Please delete all data." --forbidden "test,delete all data"
-```
-
-With forbidden patterns from a file:
-
-```bash
-echo -e "secret\n# comment line" > patterns.txt
-prompt-auditor --check "This is a secret." --forbidden-file patterns.txt
-```
-
-You can combine both options; all patterns are merged with the built-in list.
-
-**Note:** Patterns are regexes, matched case-insensitively. Lines starting with `#` in files are ignored as comments.
 
 ## Audit Score Table
 
@@ -74,7 +26,7 @@ You can combine both options; all patterns are merged with the built-in list.
 ### Example: Audit a Prompt with Variables and Risky Pattern
 
 ```bash
-prompt-auditor --check "Rewrite everything for {user}" --vars user=alice,role=admin
+python3 prompt_auditor.py --check "Rewrite everything for {user}" --vars user=alice,role=admin
 ```
 
 **Expected output:**
@@ -92,7 +44,7 @@ Audit score: 2 (0=pass, 1=warn, 2=fail)
 ### Example: JSON Output for CI
 
 ```bash
-prompt-auditor --check "Rewrite everything for {user}" --vars user=alice,role=admin --json
+python3 prompt_auditor.py --check "Rewrite everything for {user}" --vars user=alice,role=admin --json
 ```
 
 **Expected output:**
@@ -121,9 +73,3 @@ prompt-auditor --check "Rewrite everything for {user}" --vars user=alice,role=ad
 
 - Run as a preflight check in CI, batch jobs, or structured prompt pipelines.
 - Prevents risky or malformed prompts from reaching production LLMs.
-
-For all options:
-
-```bash
-prompt-auditor --help
-```

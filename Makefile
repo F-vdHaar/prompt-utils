@@ -22,3 +22,9 @@ install-hooks:
 	cp pre-commit .git/hooks/pre-commit
 	chmod +x .git/hooks/pre-commit
 	@echo "Hook installed. Commits will now be checked for unresolved GPT tags."
+
+install-local:
+	python3 -m venv venv && . venv/bin/activate && pip install --upgrade pip && pip install ./prompt-auditor
+
+validate:
+	venv/bin/prompt-auditor --check "$$(cat prompt-auditor/README.md)" --json || exit $$?
