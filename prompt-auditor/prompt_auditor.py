@@ -23,6 +23,26 @@
 # GPT-DONE: @expand – improve CLI error messages and argument validation for --check and --vars
 # GPT-DONE: @expand – implement audit scoring system: 0 = pass, 1 = warn, 2 = fail; return score via CLI exit code
 
+# GPT-DONE : You are in Mentor mode.
+# GPT-DONE : What minimal documentation and CLI help should be added to make this tool self-explanatory for other developers or CI users?
+# GPT-DONE : Return 2–3 `# GPT:` tags that cover README content or argparse help additions.
+
+
+# GPT-DONE: @prompt_auditor.py Add usage examples and a table explaining audit scores (0=pass, 1=warn, 2=fail) to the README for CI users.
+# GPT-DONE: @prompt_auditor.py Expand argparse help strings to clarify required arguments, expected formats (e.g., --vars), and the meaning of --json output.
+# GPT-DONE: @prompt_auditor.py Add a CLI usage example (with expected output) to the README to make the tool self-explanatory for new developers.
+
+# GPT-DONE: @test
+
+
+# GPT-DONE: You are in Mentor mode. I want to prepare it for installation and potential distribution.
+# GPT-DONE: What are the minimal next steps to package this as a pip-installable CLI tool?
+# GPT-DONE: Output `# GPT:`-formatted tags only — one for pyproject/setup, one for local install support.
+
+
+
+# GPT-DONE: @prompt_auditor.py Add a minimal pyproject.toml (or setup.py) with project metadata, dependencies (e.g., tiktoken), and an entry point for a CLI command (e.g., prompt-auditor).
+# GPT-DONE: @prompt_auditor.py Document local installation and usage in the README (e.g., `pip install .` and `prompt-auditor --check ...`).
 
 """ # GPT: What's the next step for this project? What structure is missing?
  """# GPT: @explain
@@ -135,17 +155,17 @@ def audit_template_variables_structured(prompt: str, provided_vars: set = None) 
     }
 
 
-def audit_risky_patterns(prompt: str) -> str:
+def audit_risky_patterns(prompt: str, extra_patterns=None) -> str:
     """Return a string reporting risky patterns found in the prompt."""
-    warnings = detect_risky_patterns(prompt)
+    warnings = detect_risky_patterns(prompt, extra_patterns=extra_patterns)
     if warnings:
         return "Warnings:\n" + "\n".join(f"  - {w}" for w in warnings)
     else:
         return "No risky patterns detected."
 
 
-def audit_risky_patterns_structured(prompt: str) -> list:
-    return detect_risky_patterns(prompt)
+def audit_risky_patterns_structured(prompt: str, extra_patterns=None) -> list:
+    return detect_risky_patterns(prompt, extra_patterns=extra_patterns)
 
 
 def estimate_token_count(prompt: str, encoding_name: str = "cl100k_base") -> int:
@@ -161,8 +181,8 @@ def extract_template_variables(prompt: str) -> set:
     return set(re.findall(r"{(.*?)}", prompt))
 
 
-def detect_risky_patterns(prompt: str) -> list:
-    """Detect forbidden or risky patterns in the prompt."""
+def detect_risky_patterns(prompt: str, extra_patterns=None) -> list:
+    """Detect forbidden or risky patterns in the prompt. Accepts extra patterns as a list."""
     forbidden_patterns = [
         r"rewrite everything",
         r"ignore previous instructions",
@@ -172,6 +192,8 @@ def detect_risky_patterns(prompt: str) -> list:
         r"as an ai language model, pretend",
         # Add more patterns as needed
     ]
+    if extra_patterns:
+        forbidden_patterns.extend(extra_patterns)
     warnings = []
     for pattern in forbidden_patterns:
         if re.search(pattern, prompt, re.IGNORECASE):
@@ -179,12 +201,12 @@ def detect_risky_patterns(prompt: str) -> list:
     return warnings
 
 
-def summary_report(prompt: str, provided_vars: set = None) -> dict:
+def summary_report(prompt: str, provided_vars: set = None, extra_patterns=None) -> dict:
     return {
         "prompt": prompt,
         "token_count": audit_token_count_value(prompt),
         "template_variables": audit_template_variables_structured(prompt, provided_vars),
-        "risky_patterns": audit_risky_patterns_structured(prompt),
+        "risky_patterns": audit_risky_patterns_structured(prompt, extra_patterns=extra_patterns),
     }
 
 
@@ -201,10 +223,35 @@ def audit_score(report: dict) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Audit a prompt for risk patterns.")
-    parser.add_argument("--check", type=str, required=True, help="Prompt to audit (required)")
-    parser.add_argument("--vars", type=str, help="Comma-separated key=value list of provided variables (e.g., username=alice,role=admin)")
-    parser.add_argument("--json", action="store_true", help="Output summary as JSON (for CI/batch use)")
+    parser = argparse.ArgumentParser(
+        description="Audit a prompt for risky patterns, variable usage, and token count. Returns a score for CI/batch use."
+    )
+    parser.add_argument(
+        "--check",
+        type=str,
+        required=True,
+        help="Prompt to audit (required, e.g., --check 'Generate a list for {username}')"
+    )
+    parser.add_argument(
+        "--vars",
+        type=str,
+        help="Comma-separated key=value list of provided variables (e.g., --vars username=alice,role=admin). Keys only are also accepted (e.g., --vars username,role)."
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output summary as JSON (for CI/batch use). Includes audit score (0=pass, 1=warn, 2=fail)."
+    )
+    parser.add_argument(
+        "--forbidden",
+        type=str,
+        help="Comma-separated list of additional forbidden/risky patterns (regex supported)."
+    )
+    parser.add_argument(
+        "--forbidden-file",
+        type=str,
+        help="Path to a file containing forbidden/risky patterns (one regex per line)."
+    )
     args = parser.parse_args()
 
     # Validate --check
@@ -219,7 +266,20 @@ def main():
         print(f"[ERROR] {ve}", file=sys.stderr)
         sys.exit(2)
 
-    report = summary_report(args.check, provided_vars)
+    # Parse forbidden patterns
+    extra_patterns = []
+    if args.forbidden:
+        extra_patterns.extend([p.strip() for p in args.forbidden.split(",") if p.strip()])
+    if args.forbidden_file:
+        try:
+            with open(args.forbidden_file, "r") as f:
+                file_patterns = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+                extra_patterns.extend(file_patterns)
+        except Exception as e:
+            print(f"[ERROR] Could not read forbidden patterns file: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    report = summary_report(args.check, provided_vars, extra_patterns=extra_patterns)
     score = audit_score(report)
     if args.json:
         report_with_score = dict(report)
