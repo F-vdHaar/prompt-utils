@@ -14,7 +14,14 @@
 # GPT-DONE: @prompt_auditor.py Extend CLI to accept a JSON or key-value list of provided variables (e.g., --vars username=alice,role=admin) and report missing/unused variables by comparing with those found in the prompt.
 # GPT-DONE: @prompt_auditor.py Implement a summary report function that aggregates all audit results (tokens, variables, risks) and outputs a clear, structured result for CI or batch use.
 
-# GPT: @expand
+# GPT-DONE: You are in Mentor mode. The project already supports token estimation, variable checking, and risky pattern detection via CLI.
+# GPT-DONE: The audit logic is modularized, but we now need to ensure quality, user robustness, and automation-readiness.
+# GPT-DONE: What are the next 2–3 critical tasks to harden this tool and prepare it for integration into a CI pipeline?
+# GPT-DONE: Output your response as `# GPT:`-formatted actionable tags only.
+
+# GPT-DONE: @test – generate a minimal test suite for the audit functions in prompt_auditor.py using pytest
+# GPT-DONE: @expand – improve CLI error messages and argument validation for --check and --vars
+# GPT-DONE: @expand – implement audit scoring system: 0 = pass, 1 = warn, 2 = fail; return score via CLI exit code
 
 
 """ # GPT: What's the next step for this project? What structure is missing?
@@ -61,7 +68,7 @@ except ImportError:
 
 
 def parse_vars(vars_str: str) -> set:
-    """Parse a comma-separated key=value string into a set of variable names."""
+    """Parse a comma-separated key=value string into a set of variable names. Raises ValueError on bad format."""
     if not vars_str:
         return set()
     pairs = [v.strip() for v in vars_str.split(",") if v.strip()]
@@ -69,8 +76,12 @@ def parse_vars(vars_str: str) -> set:
     for pair in pairs:
         if "=" in pair:
             key, _ = pair.split("=", 1)
+            if not key.strip():
+                raise ValueError(f"Invalid variable format: '{pair}'. Key cannot be empty.")
             keys.add(key.strip())
         else:
+            if not pair:
+                raise ValueError(f"Invalid variable format: '{pair}'.")
             keys.add(pair.strip())
     return keys
 
@@ -177,40 +188,66 @@ def summary_report(prompt: str, provided_vars: set = None) -> dict:
     }
 
 
+def audit_score(report: dict) -> int:
+    """Return audit score: 0 = pass, 1 = warn, 2 = fail."""
+    # Fail if missing variables or risky patterns
+    if report["template_variables"]["missing"] or report["risky_patterns"]:
+        return 2
+    # Warn if unused variables
+    if report["template_variables"]["unused"]:
+        return 1
+    # Pass otherwise
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Audit a prompt for risk patterns.")
-    parser.add_argument("--check", type=str, help="Prompt to audit")
+    parser.add_argument("--check", type=str, required=True, help="Prompt to audit (required)")
     parser.add_argument("--vars", type=str, help="Comma-separated key=value list of provided variables (e.g., username=alice,role=admin)")
     parser.add_argument("--json", action="store_true", help="Output summary as JSON (for CI/batch use)")
     args = parser.parse_args()
 
-    provided_vars = parse_vars(args.vars) if args.vars else set()
+    # Validate --check
+    if not args.check or not args.check.strip():
+        print("[ERROR] --check argument is required and cannot be empty.", file=sys.stderr)
+        sys.exit(2)
 
-    if args.check:
-        report = summary_report(args.check, provided_vars)
-        if args.json:
-            print(json.dumps(report, indent=2))
+    # Validate --vars
+    try:
+        provided_vars = parse_vars(args.vars) if args.vars else set()
+    except ValueError as ve:
+        print(f"[ERROR] {ve}", file=sys.stderr)
+        sys.exit(2)
+
+    report = summary_report(args.check, provided_vars)
+    score = audit_score(report)
+    if args.json:
+        report_with_score = dict(report)
+        report_with_score["score"] = score
+        print(json.dumps(report_with_score, indent=2))
+    else:
+        print(f"Auditing: {args.check}")
+        print(audit_token_count(args.check))
+        tv = report["template_variables"]
+        if tv["found"]:
+            print(f"Template variables found: {', '.join(tv['found'])}")
         else:
-            print(f"Auditing: {args.check}")
-            print(audit_token_count(args.check))
-            tv = report["template_variables"]
-            if tv["found"]:
-                print(f"Template variables found: {', '.join(tv['found'])}")
-            else:
-                print("No template variables found.")
-            if tv["missing"]:
-                print(f"Missing variables (in prompt, not provided): {', '.join(tv['missing'])}")
-            if tv["unused"]:
-                print(f"Unused variables (provided, not in prompt): {', '.join(tv['unused'])}")
-            if not tv["missing"] and not tv["unused"] and tv["found"]:
-                print("All provided variables are used and present in the prompt.")
-            rp = report["risky_patterns"]
-            if rp:
-                print("Warnings:")
-                for w in rp:
-                    print(f"  - {w}")
-            else:
-                print("No risky patterns detected.")
+            print("No template variables found.")
+        if tv["missing"]:
+            print(f"Missing variables (in prompt, not provided): {', '.join(tv['missing'])}")
+        if tv["unused"]:
+            print(f"Unused variables (provided, not in prompt): {', '.join(tv['unused'])}")
+        if not tv["missing"] and not tv["unused"] and tv["found"]:
+            print("All provided variables are used and present in the prompt.")
+        rp = report["risky_patterns"]
+        if rp:
+            print("Warnings:")
+            for w in rp:
+                print(f"  - {w}")
+        else:
+            print("No risky patterns detected.")
+        print(f"Audit score: {score} (0=pass, 1=warn, 2=fail)")
+    sys.exit(score)
 
 if __name__ == "__main__":
     main()
