@@ -34,10 +34,4 @@ Records and scores past prompts by outcome (e.g. revert, success), preventing re
 
 3. **Decide**: override, edit, or trust.
 
----
 
-## Philosophy
-
-- One tool, one file, one flow.
-- Build small tools. Combine them.
-- Predictable prompts = predictable systems.
